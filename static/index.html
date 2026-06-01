@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en" x-data="app()" x-init="init()">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title x-text="t('app_title')">JobRadar</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <span class="logo" x-text="t('app_title')">JobRadar</span>
+      <nav class="tabs">
+        <template x-for="tab in tabs" :key="tab.id">
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === tab.id }"
+            @click="activeTab = tab.id"
+            x-text="t(tab.label)"
+          ></button>
+        </template>
+      </nav>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ── Settings tab ─────────────────────────────────────── -->
+    <section x-show="activeTab === 'settings'" x-cloak>
+      <div class="card">
+        <h2 x-text="t('settings')"></h2>
+        <label class="field">
+          <span x-text="t('ui_language')"></span>
+          <select x-model="appSettings.ui_language" @change="saveSettings()">
+            <template x-for="lang in languages" :key="lang.code">
+              <option :value="lang.code" x-text="lang.label"></option>
+            </template>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <!-- ── Profile tab ──────────────────────────────────────── -->
+    <section x-show="activeTab === 'profile'" x-cloak>
+      <div class="card">
+        <h2 x-text="t('profile')"></h2>
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">
+              <span x-text="t('desired_title')"></span>
+              <span class="info-icon" :title="t('hint_desired_title')">?</span>
+            </span>
+            <input type="text" x-model="profile.desired_title" @change="saveProfile()" :placeholder="t('placeholder_desired_title')" />
+          </label>
+          <label class="field">
+            <span class="field-label">
+              <span x-text="t('location')"></span>
+              <span class="info-icon" :title="t('hint_location_profile')">?</span>
+            </span>
+            <input type="text" x-model="profile.location" @change="saveProfile()" :placeholder="t('placeholder_location_profile')" />
+          </label>
+          <label class="field">
+            <span class="field-label">
+              <span x-text="t('experience_years')"></span>
+              <span class="info-icon" :title="t('hint_experience_years')">?</span>
+            </span>
+            <input type="number" min="0" x-model.number="profile.experience_years" @change="saveProfile()" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field-label">
+            <span x-text="t('summary')"></span>
+            <span class="info-icon" :title="t('hint_summary')">?</span>
+          </span>
+          <textarea rows="4" x-model="profile.summary" @change="saveProfile()" :placeholder="t('placeholder_summary')"></textarea>
+        </label>
+
+        <label class="field">
+          <span class="field-label">
+            <span x-text="t('skills')"></span>
+            <span class="info-icon" :title="t('hint_skills')">?</span>
+          </span>
+          <div class="tag-input">
+            <template x-for="(skill, i) in profile.skills" :key="i">
+              <span class="tag">
+                <span x-text="skill"></span>
+                <button @click="profile.skills.splice(i,1); saveProfile()" :aria-label="'Remove ' + skill">&times;</button>
+              </span>
+            </template>
+            <input
+              type="text"
+              :placeholder="t('add_skill')"
+              @keydown.enter.prevent="addSkill($event)"
+              @keydown.comma.prevent="addSkill($event)"
+            />
+          </div>
+        </label>
+
+        <!-- CV input -->
+        <div class="cv-toggle">
+          <button
+            class="toggle-btn"
+            :class="{ active: cvMode === 'text' }"
+            @click="cvMode = 'text'"
+            x-text="t('paste_cv')"
+          ></button>
+          <button
+            class="toggle-btn"
+            :class="{ active: cvMode === 'pdf' }"
+            @click="cvMode = 'pdf'"
+            x-text="t('upload_pdf')"
+          ></button>
+        </div>
+
+        <div x-show="cvMode === 'text'">
+          <label class="field">
+            <span class="field-label">
+              <span x-text="t('cv_text')"></span>
+              <span class="info-icon" :title="t('hint_cv_text')">?</span>
+            </span>
+            <textarea rows="8" x-model="profile.cv_text" @change="saveProfile()"></textarea>
+          </label>
+        </div>
+        <div x-show="cvMode === 'pdf'">
+          <label class="field">
+            <span x-text="t('cv_pdf')"></span>
+            <input type="file" accept=".pdf" :disabled="cvUploading" @change="uploadCv($event)" />
+          </label>
+          <p x-show="cvUploading" class="hint" x-text="t('cv_uploading')"></p>
+          <p x-show="!cvUploading && profile.cv_pdf_filename" class="hint" x-text="profile.cv_pdf_filename"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Search tab ───────────────────────────────────────── -->
+    <section x-show="activeTab === 'search'" x-cloak>
+      <div class="card">
+        <h2 x-text="t('search')"></h2>
+
+        <label class="field">
+          <span class="field-label">
+            <span x-text="t('keywords')"></span>
+            <span class="info-icon" :title="t('hint_keywords')">?</span>
+          </span>
+          <div class="tag-input">
+            <template x-for="(kw, i) in searchConfig.keywords" :key="i">
+              <span class="tag">
+                <span x-text="kw"></span>
+                <button @click="searchConfig.keywords.splice(i,1); saveSearchConfig()" :aria-label="'Remove ' + kw">&times;</button>
+              </span>
+            </template>
+            <input
+              type="text"
+              :placeholder="t('add_keyword')"
+              @keydown.enter.prevent="addKeyword($event)"
+              @keydown.comma.prevent="addKeyword($event)"
+            />
+          </div>
+        </label>
+
+        <div class="form-grid">
+          <label class="field">
+            <span x-text="t('location')"></span>
+            <input type="text" x-model="searchConfig.location" @change="saveSearchConfig()" :placeholder="t('placeholder_location_search')" />
+          </label>
+          <label class="field">
+            <span class="field-label">
+              <span x-text="t('max_jobs')"></span>
+              <span class="info-icon" :title="t('hint_max_jobs')">?</span>
+            </span>
+            <input type="range" min="10" max="500" step="10" x-model.number="searchConfig.max_jobs" @change="saveSearchConfig()" />
+            <span x-text="searchConfig.max_jobs"></span>
+          </label>
+        </div>
+
+        <fieldset class="field">
+          <legend x-text="t('work_type')"></legend>
+          <div class="checkbox-group">
+            <template x-for="wt in workTypes" :key="wt">
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  :value="wt"
+                  :checked="searchConfig.work_type.includes(wt)"
+                  @change="toggleWorkType(wt); saveSearchConfig()"
+                />
+                <span x-text="t('work_type_' + wt.replace('-','_'))"></span>
+              </label>
+            </template>
+          </div>
+        </fieldset>
+
+        <fieldset class="field">
+          <legend class="field-label">
+            <span x-text="t('sources')"></span>
+            <span class="info-icon" :title="t('hint_sources')">?</span>
+          </legend>
+          <div class="checkbox-group">
+            <template x-for="src in searchConfig.sources" :key="src.name">
+              <label class="checkbox-label">
+                <input type="checkbox" x-model="src.enabled" @change="saveSearchConfig()" />
+                <span x-text="src.name"></span>
+              </label>
+            </template>
+          </div>
+        </fieldset>
+
+        <p
+          x-show="!scraping && searchConfig.keywords.length === 0"
+          class="validation-msg"
+          x-text="t('keywords_required')"
+        ></p>
+        <button
+          class="btn-primary"
+          @click="runScrape()"
+          :disabled="scraping || searchConfig.keywords.length === 0"
+          x-text="scraping ? t('searching') : t('start_search')"
+        ></button>
+
+        <!-- SSE progress -->
+        <div x-show="scrapeLog.length > 0" class="progress-log">
+          <template x-for="entry in scrapeLog" :key="entry">
+            <div class="log-line" x-text="entry"></div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Jobs tab ─────────────────────────────────────────── -->
+    <section x-show="activeTab === 'jobs'" x-cloak>
+      <div class="toolbar">
+        <select x-model="jobFilter.status" @change="filterJobs()">
+          <option value="" x-text="t('all_statuses')"></option>
+          <option value="new" x-text="t('status_new')"></option>
+          <option value="interesting" x-text="t('status_interesting')"></option>
+          <option value="applied" x-text="t('status_applied')"></option>
+          <option value="dismissed" x-text="t('status_dismissed')"></option>
+        </select>
+
+        <div class="filter-group">
+          <span x-text="t('min_score') + ': ' + jobFilter.minScore"></span>
+          <input type="range" min="0" max="100" step="5" x-model.number="jobFilter.minScore" @input="filterJobs()" />
+        </div>
+
+        <div class="checkbox-group inline">
+          <template x-for="wt in workTypes" :key="wt">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                :value="wt"
+                :checked="jobFilter.workTypes.includes(wt)"
+                @change="toggleJobFilterWorkType(wt); filterJobs()"
+              />
+              <span x-text="t('work_type_' + wt.replace('-','_'))"></span>
+            </label>
+          </template>
+        </div>
+
+        <button class="btn-secondary" @click="runRanker()" :disabled="ranking" x-text="ranking ? t('analysing') : t('analyse')" :title="t('tooltip_rank_btn')"></button>
+      </div>
+      <p class="rank-hint" x-show="allJobs.length > 0 && allJobs.every(j => j.relevance_score === null)" x-text="t('rank_hint')"></p>
+
+      <!-- Ranker progress -->
+      <div x-show="rankerLog.length > 0" class="progress-log">
+        <template x-for="entry in rankerLog" :key="entry">
+          <div class="log-line" x-text="entry"></div>
+        </template>
+      </div>
+
+      <!-- Job list -->
+      <div class="job-list">
+        <template x-if="filteredJobs.length === 0">
+          <div class="empty-guide">
+            <p class="empty-guide-title" x-text="t('no_jobs_title')"></p>
+            <ol class="workflow-steps">
+              <li x-text="t('workflow_step_1')"></li>
+              <li x-text="t('workflow_step_2')"></li>
+              <li x-text="t('workflow_step_3')"></li>
+              <li x-text="t('workflow_step_4')"></li>
+            </ol>
+          </div>
+        </template>
+        <template x-for="job in filteredJobs" :key="job.id">
+          <div class="job-card" role="button" tabindex="0"
+            @click="openJob(job)"
+            @keydown.enter.prevent="openJob(job)"
+            @keydown.space.prevent="openJob(job)">
+            <div class="job-card-main">
+              <span class="job-title" x-text="job.title"></span>
+              <span class="job-company" x-text="job.company"></span>
+              <span class="job-location" x-text="job.location"></span>
+            </div>
+            <div class="job-card-badges">
+              <span class="badge work-type" :title="t('tooltip_work_type')" x-text="job.work_type === 'unknown' ? '?' : job.work_type" :class="'wt-' + job.work_type.replace('-','_')"></span>
+              <span x-show="job.relevance_score !== null" class="badge relevance" :title="t('tooltip_relevance')" x-text="job.relevance_score"></span>
+              <span x-show="job.fit_score !== null" class="badge fit" :title="t('tooltip_fit')" x-text="job.fit_score"></span>
+              <span class="badge status" :class="'st-' + job.status" x-text="t('status_' + job.status)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Job detail drawer ─────────────────────────────────── -->
+  <div class="drawer-overlay" x-show="selectedJob" @click.self="selectedJob = null" x-cloak>
+    <div class="drawer" x-show="selectedJob" @click.stop
+      role="dialog" aria-modal="true" :aria-labelledby="selectedJob ? 'job-drawer-title' : null">
+      <button class="drawer-close" @click="selectedJob = null" aria-label="Close">&times;</button>
+      <template x-if="selectedJob">
+        <div>
+          <h2 id="job-drawer-title" x-text="selectedJob.title"></h2>
+          <p class="job-meta">
+            <span x-text="selectedJob.company"></span> &middot;
+            <span x-text="selectedJob.location"></span> &middot;
+            <span class="badge work-type" :title="t('tooltip_work_type')" x-text="selectedJob.work_type === 'unknown' ? '?' : selectedJob.work_type" :class="'wt-' + selectedJob.work_type.replace('-','_')"></span>
+          </p>
+
+          <div x-show="selectedJob.relevance_score !== null" class="score-block">
+            <strong x-text="t('relevance_score') + ': ' + selectedJob.relevance_score"></strong>
+            <p x-text="selectedJob.relevance_reason"></p>
+          </div>
+
+          <div x-show="selectedJob.fit_score !== null" class="score-block">
+            <strong x-text="t('fit_score') + ': ' + selectedJob.fit_score"></strong>
+            <p x-text="selectedJob.fit_summary"></p>
+            <ul>
+              <template x-for="s in selectedJob.strengths"><li x-text="'✓ ' + s"></li></template>
+              <template x-for="w in selectedJob.weaknesses"><li x-text="'✗ ' + w"></li></template>
+              <template x-for="r in selectedJob.recommendations"><li x-text="'→ ' + r"></li></template>
+            </ul>
+          </div>
+
+          <div class="description-block">
+            <h3 x-text="t('description')"></h3>
+            <p x-text="selectedJob.description"></p>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span x-text="t('status')"></span>
+              <select x-model="selectedJob.status" @change="patchJob(selectedJob, { status: selectedJob.status })">
+                <option value="new" x-text="t('status_new')"></option>
+                <option value="interesting" x-text="t('status_interesting')"></option>
+                <option value="applied" x-text="t('status_applied')"></option>
+                <option value="dismissed" x-text="t('status_dismissed')"></option>
+              </select>
+            </label>
+          </div>
+
+          <label class="field">
+            <span x-text="t('notes')"></span>
+            <textarea rows="3" x-model="selectedJob.notes" @change="patchJob(selectedJob, { notes: selectedJob.notes })"></textarea>
+          </label>
+
+          <div class="action-row">
+            <button class="btn-secondary" @click="runScore(selectedJob.id)" :disabled="scoring" x-text="scoring ? t('scoring') : t('score_cv')"></button>
+            <button class="btn-primary" @click="openHintsModal()" x-text="t('generate_cover_letter')"></button>
+            <a :href="selectedJob.url" target="_blank" rel="noopener noreferrer" class="btn-link" x-text="t('open_posting')"></a>
+          </div>
+
+          <!-- Cover letter status -->
+          <p class="hint" x-show="coverLetterExists" x-text="t('cover_letter_generated')"></p>
+          <p class="hint" x-show="!coverLetterExists" x-text="t('cover_letter_none')"></p>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ── Hints modal ───────────────────────────────────────── -->
+  <div class="modal-overlay" x-show="hintsModal" @click.self="hintsModal = false" x-cloak>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="hints-modal-title">
+      <h3 id="hints-modal-title" x-text="t('hints_title')"></h3>
+      <textarea rows="4" x-model="hints" :placeholder="t('hints_placeholder')"></textarea>
+      <div class="action-row">
+        <button class="btn-secondary" @click="hintsModal = false" x-text="t('cancel')"></button>
+        <button
+          class="btn-primary"
+          @click="runCoverLetter(selectedJob.id)"
+          :disabled="generatingLetter"
+          x-text="generatingLetter ? t('generating') : t('generate')"
+        ></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Cover letter panel ────────────────────────────────── -->
+  <div class="drawer-overlay" x-show="coverLetterOpen" @click.self="coverLetterOpen = false" x-cloak>
+    <div class="drawer wide" x-show="coverLetterOpen" @click.stop
+      role="dialog" aria-modal="true" aria-labelledby="cover-letter-drawer-title">
+      <button class="drawer-close" @click="coverLetterOpen = false" aria-label="Close">&times;</button>
+      <h2 id="cover-letter-drawer-title" x-text="t('cover_letter')"></h2>
+      <div
+        class="cover-letter-editor"
+        contenteditable="true"
+        x-ref="letterEditor"
+        @input.debounce.1000ms="saveLetter()"
+      ></div>
+      <div class="action-row">
+        <button class="btn-secondary" @click="saveLetter()" x-text="t('save')"></button>
+        <a :href="'/api/cover-letters/' + (selectedJob?.id) + '/export/txt'" class="btn-link" x-text="t('export_txt')"></a>
+        <a :href="'/api/cover-letters/' + (selectedJob?.id) + '/export/pdf'" class="btn-link" x-text="t('export_pdf')"></a>
+        <button class="btn-secondary" @click="openHintsModal(true)" x-text="t('regenerate')"></button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /#app -->
+
+<script>
+const TRANSLATIONS_EN = {
+  app_title: "JobRadar",
+  settings: "Settings",
+  profile: "Profile",
+  search: "Search",
+  jobs: "Jobs",
+  ui_language: "Interface language",
+  desired_title: "Desired job title",
+  location: "Location",
+  experience_years: "Years of experience",
+  summary: "Summary",
+  skills: "Skills",
+  add_skill: "Add skill…",
+  paste_cv: "Paste CV text",
+  upload_pdf: "Upload PDF",
+  cv_text: "CV text",
+  cv_pdf: "CV PDF file",
+  cv_uploading: "Extracting text from PDF…",
+  keywords: "Keywords",
+  add_keyword: "Add keyword…",
+  max_jobs: "Max jobs",
+  work_type: "Work type",
+  work_type_remote: "Remote",
+  work_type_hybrid: "Hybrid",
+  work_type_on_site: "On-site",
+  sources: "Sources",
+  keywords_required: "Add at least one keyword before searching.",
+  start_search: "Start search",
+  searching: "Searching…",
+  tooltip_work_type: "Work type detected from the job listing",
+  tooltip_relevance: "Relevance score (0–100): how well this job matches your profile",
+  tooltip_fit: "CV fit score (0–100): how well your CV matches this job",
+  all_statuses: "All statuses",
+  status_new: "New",
+  status_interesting: "Interesting",
+  status_applied: "Applied",
+  status_dismissed: "Dismissed",
+  min_score: "Min score",
+  relevance_score: "Relevance",
+  fit_score: "Fit score",
+  description: "Description",
+  status: "Status",
+  notes: "Notes",
+  scoring: "Scoring…",
+  generate_cover_letter: "Generate cover letter",
+  open_posting: "Open posting",
+  cover_letter_generated: "Cover letter: Generated",
+  cover_letter_none: "Cover letter: Not generated",
+  hints_title: "Cover letter hints (optional)",
+  hints_placeholder: "e.g. Emphasise team lead experience…",
+  cancel: "Cancel",
+  generate: "Generate",
+  generating: "Generating…",
+  cover_letter: "Cover Letter",
+  save: "Save",
+  export_txt: "Export TXT",
+  export_pdf: "Export PDF",
+  regenerate: "Regenerate",
+
+  // Placeholders
+  placeholder_desired_title: "e.g. Senior Frontend Developer",
+  placeholder_location_profile: "e.g. Stockholm",
+  placeholder_location_search: "e.g. Stockholm, Sweden, Remote",
+  placeholder_summary: "e.g. I'm a full-stack developer with 5 years of experience in React and Node.js…",
+
+  // Tooltip
+  tooltip_rank_btn: "Search fetches jobs instantly with no AI. Ranking runs an AI pass to score each listing — run it after searching or when you update your profile.",
+  rank_hint: "Jobs were fetched without AI scoring. Click Rank by relevance to have the AI score each listing against your profile and keywords.",
+
+  // Field hints
+  hint_desired_title: "Used as default keyword when searching and in cover letters",
+  hint_location_profile: "Your home city or preference, e.g. Stockholm",
+  hint_experience_years: "Total years of professional work experience",
+  hint_summary: "A short pitch about yourself — used by AI when scoring and generating cover letters",
+  hint_skills: "Technologies and competencies you want to highlight, e.g. Python, Scrum",
+  hint_cv_text: "Your full CV — the AI analyses it to match you against job listings",
+  hint_keywords: "Job titles or technologies to search for, e.g. \"Frontend Developer\", \"React\"",
+  hint_max_jobs: "Approximate number of listings fetched per search",
+  hint_sources: "Job boards that will be searched",
+  hint_tag_input: "Press Enter or comma to add",
+
+  // Empty state workflow guide
+  no_jobs_title: "No jobs yet — here's how to get started:",
+  workflow_step_1: "Fill in your Profile (name, skills, CV)",
+  workflow_step_2: "Go to Search and add keywords",
+  workflow_step_3: "Click \"Start search\" to fetch job listings",
+  workflow_step_4: "Come back here and click \"Rank by relevance\" — this runs an AI pass to score each listing against your profile (search itself has no AI)",
+
+  // Updated button labels
+  analyse: "Rank by relevance",
+  analysing: "Ranking…",
+  score_cv: "Score fit against CV",
+};
+
+function app() {
+  return {
+    // State
+    activeTab: "jobs",
+    tabs: [
+      { id: "profile",  label: "profile"  },
+      { id: "search",   label: "search"   },
+      { id: "jobs",     label: "jobs"     },
+      { id: "settings", label: "settings" },
+    ],
+    languages: [
+      { code: "en", label: "English" },
+      { code: "sv", label: "Swedish" },
+      { code: "de", label: "Deutsch" },
+      { code: "fr", label: "Français" },
+      { code: "es", label: "Español" },
+      { code: "pl", label: "Polski" },
+    ],
+    workTypes: ["remote", "hybrid", "on-site"],
+    appSettings: { ui_language: "en" },
+    profile: {},
+    searchConfig: { keywords: [], location: "", work_type: ["remote","hybrid","on-site"], max_jobs: 100, sources: [] },
+    allJobs: [],
+    filteredJobs: [],
+    jobFilter: { status: "", minScore: 0, workTypes: [] },
+    selectedJob: null,
+    coverLetterExists: false,
+    coverLetterText: "",
+    coverLetterOpen: false,
+    hintsModal: false,
+    hints: "",
+    cvMode: "text",
+    cvUploading: false,
+    scraping: false,
+    scrapeLog: [],
+    ranking: false,
+    rankerLog: [],
+    scoring: false,
+    generatingLetter: false,
+    translations: TRANSLATIONS_EN,
+
+    t(key) {
+      return this.translations[key] ?? TRANSLATIONS_EN[key] ?? key;
+    },
+
+    async loadTranslations(lang) {
+      document.documentElement.lang = lang || "en";
+      try {
+        const res = await fetch(`/i18n/${lang || "en"}.json`, { cache: "no-store" });
+        this.translations = res.ok ? await res.json() : TRANSLATIONS_EN;
+      } catch {
+        this.translations = TRANSLATIONS_EN;
+      }
+    },
+
+    async init() {
+      const fetchJson = (url) =>
+        fetch(url).then(r => {
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText} (${url})`);
+          return r.json();
+        });
+      try {
+        const [s, p, sc, jobs] = await Promise.all([
+          fetchJson("/api/settings"),
+          fetchJson("/api/profile"),
+          fetchJson("/api/search-config"),
+          fetchJson("/api/jobs"),
+        ]);
+        this.appSettings = s;
+        await this.loadTranslations(s.ui_language);
+        this.profile = p;
+        this.searchConfig = sc;
+        this.allJobs = jobs;
+        this.filteredJobs = jobs;
+      } catch (err) {
+        alert("Failed to load app data: " + err.message);
+      }
+
+      // Sync coverLetterText → contenteditable when text changes and editor
+      // is not focused, to avoid clobbering in-progress edits.
+      this.$watch("coverLetterText", (text) => {
+        const el = this.$refs.letterEditor;
+        if (el && el !== document.activeElement) el.innerText = text;
+      });
+    },
+
+    // Settings
+    async saveSettings() {
+      try {
+        const res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.appSettings),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        await this.loadTranslations(this.appSettings.ui_language);
+      } catch (err) {
+        alert("Failed to save settings: " + err.message);
+      }
+    },
+
+    // Profile
+    async saveProfile() {
+      try {
+        const res = await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.profile),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      } catch (err) {
+        console.error("Failed to save profile:", err);
+      }
+    },
+    addSkill(e) {
+      const val = e.target.value.trim().replace(/,$/, "");
+      if (val) { this.profile.skills.push(val); this.saveProfile(); }
+      e.target.value = "";
+    },
+    async uploadCv(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      this.cvUploading = true;
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/profile/cv/upload", { method: "POST", body: fd });
+        if (!res.ok) throw new Error(await res.text());
+        this.profile = await res.json();
+        this.cvMode = "text";
+      } catch (err) {
+        alert("CV upload failed: " + err.message);
+      } finally {
+        this.cvUploading = false;
+      }
+    },
+
+    // Search config
+    async saveSearchConfig() {
+      try {
+        const res = await fetch("/api/search-config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.searchConfig),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      } catch (err) {
+        console.error("Failed to save search config:", err);
+      }
+    },
+    addKeyword(e) {
+      const val = e.target.value.trim().replace(/,$/, "");
+      if (val) { this.searchConfig.keywords.push(val); this.saveSearchConfig(); }
+      e.target.value = "";
+    },
+    toggleWorkType(wt) {
+      const idx = this.searchConfig.work_type.indexOf(wt);
+      if (idx >= 0) this.searchConfig.work_type.splice(idx, 1);
+      else this.searchConfig.work_type.push(wt);
+    },
+
+    // Scrape
+    async runScrape() {
+      this.scraping = true;
+      this.scrapeLog = [];
+      await this._streamPost("/api/agents/scrape", {}, this.scrapeLog, async () => {
+        await this.loadJobs();
+        this.scraping = false;
+      });
+    },
+
+    // Ranker
+    async runRanker() {
+      this.ranking = true;
+      this.rankerLog = [];
+      await this._streamPost(
+        "/api/agents/rank", {}, this.rankerLog,
+        async () => {
+          await this.loadJobs();
+          this.ranking = false;
+        },
+        (evt) => {
+          if (evt.job_id && evt.relevance_score !== undefined) {
+            const job = this.allJobs.find(j => j.id === evt.job_id);
+            if (job) {
+              job.relevance_score = evt.relevance_score;
+              job.work_type = evt.work_type || job.work_type;
+              this.filterJobs();
+            }
+          }
+        }
+      );
+    },
+
+    // Score
+    async runScore(jobId) {
+      this.scoring = true;
+      const log = [];
+      await this._streamPost(`/api/agents/score/${jobId}`, {}, log, async () => {
+        try {
+          const res = await fetch(`/api/jobs/${jobId}`);
+          if (res.ok) {
+            const job = await res.json();
+            Object.assign(this.selectedJob, job);
+            this.updateJobInList(job);
+          }
+        } catch (err) {
+          console.error("Failed to reload job after scoring:", err);
+        } finally {
+          this.scoring = false;
+        }
+      });
+    },
+
+    // Cover letter
+    openHintsModal(regenerate = false) {
+      if (!regenerate) this.hints = "";
+      this.hintsModal = true;
+    },
+    async runCoverLetter(jobId) {
+      this.hintsModal = false;
+      this.generatingLetter = true;
+      const log = [];
+      await this._streamPost(
+        `/api/agents/cover-letter/${jobId}`,
+        { hints: this.hints },
+        log,
+        async (lastEvent) => {
+          this.generatingLetter = false;
+          if (lastEvent?.text) {
+            this.coverLetterExists = true;
+            this.coverLetterOpen = true;
+            await this.$nextTick();
+            this.coverLetterText = lastEvent.text;
+            if (this.$refs.letterEditor)
+              this.$refs.letterEditor.innerText = lastEvent.text;
+          }
+        }
+      );
+    },
+    async openJob(job) {
+      this.selectedJob = job;
+      this.coverLetterOpen = false;
+      const cl = await fetch(`/api/cover-letters/${job.id}`).catch(() => null);
+      if (cl?.ok) {
+        const data = await cl.json();
+        this.coverLetterExists = true;
+        this.coverLetterText = data.text;
+      } else {
+        this.coverLetterExists = false;
+        this.coverLetterText = "";
+      }
+    },
+    async saveLetter() {
+      if (!this.selectedJob) return;
+      const el = this.$refs.letterEditor;
+      const text = el ? el.innerText : this.coverLetterText;
+      await fetch(`/api/cover-letters/${this.selectedJob.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+    },
+
+    // Jobs helpers
+    async loadJobs() {
+      this.allJobs = await fetch("/api/jobs").then(r => r.json());
+      this.filterJobs();
+      if (this.selectedJob) {
+        this.selectedJob =
+          this.allJobs.find(j => j.id === this.selectedJob.id) || null;
+      }
+    },
+    filterJobs() {
+      this.filteredJobs = this.allJobs.filter(j => {
+        if (this.jobFilter.status && j.status !== this.jobFilter.status) return false;
+        if (this.jobFilter.minScore > 0 && (j.relevance_score ?? -1) < this.jobFilter.minScore) return false;
+        if (this.jobFilter.workTypes.length && !this.jobFilter.workTypes.includes(j.work_type)) return false;
+        return true;
+      });
+    },
+    toggleJobFilterWorkType(wt) {
+      const idx = this.jobFilter.workTypes.indexOf(wt);
+      if (idx >= 0) this.jobFilter.workTypes.splice(idx, 1);
+      else this.jobFilter.workTypes.push(wt);
+    },
+    updateJobInList(job) {
+      const idx = this.allJobs.findIndex(j => j.id === job.id);
+      if (idx >= 0) this.allJobs[idx] = job;
+      this.filterJobs();
+    },
+    async patchJob(job, patch) {
+      try {
+        const res = await fetch(`/api/jobs/${job.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      } catch (err) {
+        console.error("Failed to patch job:", err);
+      }
+      this.filterJobs();
+    },
+
+    // SSE streaming via fetch
+    async _streamPost(url, body, log, onDone, onEvent) {
+      let lastEvent = null;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.body) throw new Error(`No response body (status ${res.status})`);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n\n");
+          buf = lines.pop();
+          for (const chunk of lines) {
+            const line = chunk.replace(/^data: /, "").trim();
+            if (!line) continue;
+            try {
+              const evt = JSON.parse(line);
+              lastEvent = evt;
+              if (evt.message) {
+                const prefix = evt.type === "error" ? "Error: " : "";
+                log.push(prefix + evt.message);
+              }
+              if (onEvent) onEvent(evt);
+            } catch (e) { log.push("Parse error: " + e.message); }
+          }
+        }
+      } catch (err) {
+        log.push("Connection error: " + err.message);
+      }
+      if (onDone) await onDone(lastEvent);
+    },
+  };
+}
+</script>
+</body>
+</html>
