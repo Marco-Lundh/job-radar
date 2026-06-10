@@ -1,6 +1,7 @@
 import ssl
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import uuid4
 
 import httpx
@@ -59,36 +60,47 @@ class PlatsbankenSource(BaseJobSource):
                 offset += len(hits)
 
 
+WorkType = Literal["remote", "hybrid", "on-site", "unknown"]
+
+# Platsbanken marks fully remote roles with this working-hours label.
+_REMOTE_LABEL = "distansarbete"
+# Hybrid roles are only discoverable from free-text in the description.
+_HYBRID_KEYWORD = "hybrid"
+
+
+def _text(node: object, *keys: str) -> str:
+    """Walk a nested JSON path, returning "" for any missing/None step."""
+    for key in keys:
+        node = node.get(key) if isinstance(node, dict) else None
+    return node if isinstance(node, str) else ""
+
+
+def _detect_work_type(label: str, description: str) -> WorkType:
+    if label.lower() == _REMOTE_LABEL:
+        return "remote"
+    if _HYBRID_KEYWORD in description.lower():
+        return "hybrid"
+    if description:
+        return "on-site"
+    return "unknown"
+
+
 def _parse_hit(hit: dict[str, object]) -> Job:
-    employer = hit.get("employer", {})
-    workplace = hit.get("workplace_address", {})
-    desc_raw = hit.get("description", {})
-    desc_text = desc_raw.get("text", "") if isinstance(desc_raw, dict) else ""
-
-    work_type = "unknown"
-    wh = hit.get("working_hours_type")
-    wh_label = (wh.get("label", "") if isinstance(wh, dict) else "").lower()
-    if wh_label == "distansarbete":
-        work_type = "remote"
-    elif "hybrid" in desc_text.lower():
-        work_type = "hybrid"
-    elif desc_text:
-        work_type = "on-site"
-
-    def s(val: object) -> str:
-        return val if isinstance(val, str) else ""
+    description = _text(hit, "description", "text")
+    work_type = _detect_work_type(
+        _text(hit, "working_hours_type", "label"), description
+    )
 
     return Job(
-        id=hit.get("id") or str(uuid4()),
+        id=_text(hit, "id") or str(uuid4()),
         source="platsbanken",
-        title=s(hit.get("headline")),
-        company=s(employer.get("name")),
-        location=(
-            s(workplace.get("municipality")) or s(workplace.get("region"))
-        ),
+        title=_text(hit, "headline"),
+        company=_text(hit, "employer", "name"),
+        location=_text(hit, "workplace_address", "municipality")
+        or _text(hit, "workplace_address", "region"),
         work_type=work_type,
-        description=desc_text,
-        url=s(hit.get("webpage_url")),
-        posted_date=hit.get("publication_date"),
+        description=description,
+        url=_text(hit, "webpage_url"),
+        posted_date=_text(hit, "publication_date") or None,
         scraped_at=datetime.now(UTC).isoformat(),
     )
